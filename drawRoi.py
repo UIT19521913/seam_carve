@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import os
 pts = []
 
 
@@ -37,15 +38,19 @@ img = cv2.imread("./img/Beach.jpg")
 cv2.namedWindow('image')
 cv2.setMouseCallback('image', draw_roi)
 
+mask = np.zeros_like(img)
 while True:
     key = cv2.waitKey(1) & 0xFF
     if key == 27:
         break
     if key == ord("s"):
-        break
-mask = np.zeros_like(img)
-cv2.fillPoly(mask, [np.array(pts)], (255, 255, 255))
+        cv2.fillPoly(mask, [np.array(pts)], (255, 255, 255))
+        cv2.imshow("mask", mask)
+        pts = []
 cv2.imshow("mask", mask)
-cv2.imwrite("./mask/image_mask.jpg", mask)
+files = os.listdir("./mask")
+name = len(files) +1
+print(files)
+cv2.imwrite(f"./mask/mask{name}.jpg", mask)
 cv2.waitKey()
 # cv2.destroyAllWindows()
