@@ -1,4 +1,16 @@
 import streamlit as st
+from streamlit import config
+from streamlit.report import Report
+from streamlit.elements.image import (
+    _BytesIO_to_bytes,
+    _normalize_to_bytes,
+    MAXIMUM_CONTENT_WIDTH,
+)
+from streamlit.media_file_manager import (
+    _calculate_file_id,
+    _get_extension_for_mimetype,
+    STATIC_MEDIA_ENDPOINT,
+)
 import argparse
 import time
 from pathlib import Path
@@ -12,7 +24,17 @@ import pandas as pd
 import seam_carving
 
 
+def img_url(image):
+    mimetype = image.type
+    data = _BytesIO_to_bytes(image)
+    data, mimetype = _normalize_to_bytes(data, MAXIMUM_CONTENT_WIDTH, mimetype)
+    extension = _get_extension_for_mimetype(mimetype)
+    file_id = _calculate_file_id(data=data, mimetype=mimetype)
+    URL = Report.get_url(config.get_option("browser.serverAddress"))
+    return "{}{}/{}{}".format(URL, STATIC_MEDIA_ENDPOINT, file_id, extension)
+
 # header
+
 
 st.title("Seam Carving")
 
@@ -25,12 +47,15 @@ img_input = st.sidebar.file_uploader("Upload a photo", type=["png", "jpg"])
 nav = st.sidebar.selectbox("Chọn thao tác muốn thực hiện", [
                            "Resize", "Remove object"])
 dst = None
+st.write(img_url(img_input))
 if img_input is not None:
     # Convert the file to an opencv image.
     file_bytes = np.asarray(bytearray(img_input.read()), dtype=np.uint8)
     opencv_image = cv2.imdecode(file_bytes, 1)
+    st.write("h", opencv_image.shape[0])
+    st.write("w", opencv_image.shape[1])
     # Now do something with the image! For example, let's display it:
-    st.image(opencv_image, channels="BGR")
+    st.image(opencv_image, channels="BGR", width=None, output_format='PNG')
 
     src_h, src_w, _ = opencv_image.shape
     if nav == "Resize":
@@ -38,12 +63,12 @@ if img_input is not None:
             "Nhập chiều cao", value=src_h, format="%d", step=2)
         width = st.sidebar.number_input(
             "Nhập chiều rộng", value=src_w, format="%d", step=2)
-       
+
         energy = st.sidebar.selectbox("Chọn phương pháp tìm đường seam", [
-                           "backward", "forward"])
+            "backward", "forward"])
         order = st.sidebar.selectbox("Chọn thứ tự thêm/ xoá đường seam", [
-                            "width-first", "height-first"])
-        
+            "width-first", "height-first"])
+
         keep_mask_select = st.sidebar.checkbox("Chọn đối tượng giữ ")
         keep_mask = None
         if keep_mask_select:
@@ -67,17 +92,19 @@ if img_input is not None:
                 keep_mask = np.array(
                     canvas_keep.image_data[:, :, :3], dtype=np.uint8)
                 keep_mask = (keep_mask[:, :, 0] > 10) * 255
-                st.image(keep_mask)
+                st.image(keep_mask, width=None, output_format='PNG')
 
         button = st.sidebar.button("save")
         if button:
             status = st.empty()
             start = time.time()
             status.write("Performing seam carving...")
-            dst = seam_carving.resize(opencv_image, (width, height), energy, order, keep_mask)
-            status.write('Done at {:.4f} second(s)'.format(time.time() - start))
-            st.image(dst, channels="BGR")
-        
+            dst = seam_carving.resize(
+                opencv_image, (width, height), energy, order, keep_mask)
+            status.write('Done at {:.4f} second(s)'.format(
+                time.time() - start))
+            st.image(dst, channels="BGR", width=None, output_format='PNG')
+            # test
 
     if nav == "Remove object":
         drop_mask_select = st.sidebar.checkbox("Chọn đối tượng cần xoá", True)
@@ -103,7 +130,7 @@ if img_input is not None:
                 drop_mask = np.array(
                     canvas_drop.image_data[:, :, :3], dtype=np.uint8)
                 drop_mask = (drop_mask[:, :, 0] > 10) * 255
-                st.image(drop_mask)
+                st.image(drop_mask, width=None, output_format='PNG')
 
         keep_mask_select = st.sidebar.checkbox("Chọn đối tượng giữ ")
         keep_mask = None
@@ -128,7 +155,7 @@ if img_input is not None:
                 keep_mask = np.array(
                     canvas_keep.image_data[:, :, :3], dtype=np.uint8)
                 keep_mask = (keep_mask[:, :, 0] > 10) * 255
-                st.image(keep_mask)
+                st.image(keep_mask, width=None, output_format='PNG')
 
         size_unchange = st.sidebar.checkbox("Không thay đổi kích thước ảnh")
         confirm = st.button("Confirm")
@@ -143,4 +170,4 @@ if img_input is not None:
                 dst = seam_carving.resize(dst, (src_w, src_h))
             status.write('Done at {:.4f} second(s)'.format(
                 time.time() - start))
-            st.image(dst, channels="BGR")
+            st.image(dst, channels="BGR", width=None, output_format='PNG')
