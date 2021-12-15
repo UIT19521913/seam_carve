@@ -3,9 +3,7 @@ from typing import Tuple, Optional
 import numpy as np
 from scipy.ndimage import sobel
 
-WIDTH_FIRST = 'width-first'
-HEIGHT_FIRST = 'height-first'
-VALID_ORDERS = (WIDTH_FIRST, HEIGHT_FIRST)
+OPTIMAL = 'optimal'
 
 FORWARD_ENERGY = 'forward'
 BACKWARD_ENERGY = 'backward'
@@ -41,13 +39,6 @@ def _remove_seam_mask(src: np.ndarray, seam_mask: np.ndarray) -> np.ndarray:
     return dst
 
 
-def _remove_seam(src: np.ndarray, seam: np.ndarray) -> np.ndarray:
-    """Remove a seam from the source image, given a list of seam columns"""
-    seam_mask = _get_seam_mask(src, seam)
-    dst = _remove_seam_mask(src, seam_mask)
-    return dst
-
-
 def _get_energy(gray: np.ndarray) -> np.ndarray:
     """Get backward energy map from the source image"""
     assert gray.ndim == 2
@@ -76,13 +67,14 @@ def _get_backward_seam(energy: np.ndarray) -> np.ndarray:
         cost = cost[min_idx] + energy[r]
 
     c = np.argmin(cost)
+    seam_cost = cost
     seam = np.empty(h, dtype=np.int32)
 
     for r in range(h - 1, -1, -1):
         seam[r] = c
         c = parent[r, c]
 
-    return seam
+    return seam, seam_cost
 
 
 def _get_backward_seams(gray: np.ndarray, num_seams: int,
@@ -96,7 +88,7 @@ def _get_backward_seams(gray: np.ndarray, num_seams: int,
     for _ in range(num_seams):
         if keep_mask is not None:
             energy[keep_mask] += KEEP_MASK_ENERGY
-        seam = _get_backward_seam(energy)
+        seam, seam_cost = _get_backward_seam(energy)
         seams_mask[rows, idx_map[rows, seam]] = True
 
         seam_mask = _get_seam_mask(gray, seam)
@@ -155,6 +147,7 @@ def _get_forward_seam(gray: np.ndarray,
         parent[r] = np.argmin(choices, axis=0) + base_idx
 
     c = np.argmin(dp)
+    seam_cost = cost[c]
 
     seam = np.empty(h, dtype=np.int32)
     for r in range(h - 1, -1, -1):
@@ -209,9 +202,9 @@ def _reduce_width(src: np.ndarray, delta_width: int, energy_mode: str,
     keep_mask_shape = (src_h, src_w - delta_width)
     seams_mask = _get_seams(gray, delta_width, energy_mode, keep_mask)
     dst = src[~seams_mask].reshape(dst_shape)
-    if keep_mask is not None:
-        global keep_mask_
-        keep_mask_ = keep_mask[~seams_mask].reshape(keep_mask_shape)
+    global keep_mask_
+    keep_mask_ = keep_mask[~seams_mask].reshape(keep_mask_shape)
+
     return dst
 
 
@@ -231,9 +224,8 @@ def _expand_width(src: np.ndarray, delta_width: int, energy_mode: str,
     keep_mask_shape = (src_h, src_w + delta_width)
     seams_mask = _get_seams(gray, delta_width, energy_mode, keep_mask)
     dst = np.empty(dst_shape, dtype=np.uint8)
-    if keep_mask is not None:
-        global keep_mask_
-        keep_mask_ = np.empty(keep_mask_shape, dtype=np.uint8)
+    global keep_mask_
+    keep_mask_ = np.empty(keep_mask_shape, dtype=np.uint8)
 
     for row in range(src_h):
         dst_col = 0
@@ -242,12 +234,10 @@ def _expand_width(src: np.ndarray, delta_width: int, energy_mode: str,
                 lo = max(0, src_col - 1)
                 hi = src_col + 1
                 dst[row, dst_col] = src[row, lo:hi].mean(axis=0)
-                if keep_mask is not None:
-                    keep_mask_[row, dst_col] = 0
+                keep_mask_[row, dst_col] = 0
                 dst_col += 1
             dst[row, dst_col] = src[row, src_col]
-            if keep_mask is not None:
-                keep_mask_[row, dst_col] = keep_mask[row, src_col]
+            keep_mask_[row, dst_col] = keep_mask[row, src_col]
             dst_col += 1
         assert dst_col == src_w + delta_width
 
@@ -274,10 +264,8 @@ def _resize_height(src: np.ndarray, height: int, energy_mode: str,
     """Resize the height of image by removing horizontal seams"""
     assert src.ndim in (2, 3) and height > 0
     if src.ndim == 3:
-        if keep_mask is not None:
-            keep_mask = keep_mask.T
         src = _resize_width(src.transpose((1, 0, 2)), height, energy_mode,
-                            keep_mask).transpose((1, 0, 2))
+                            keep_mask.T).transpose((1, 0, 2))
     else:
         src = _resize_width(src.T, height, energy_mode, keep_mask).T
     return src
@@ -307,22 +295,6 @@ def _check_src(src: np.ndarray) -> np.ndarray:
 def resize(src: np.ndarray, size: Tuple[int, int],
            energy_mode: str = 'backward', order: str = 'width-first',
            keep_mask: Optional[np.ndarray] = None) -> np.ndarray:
-    """Resize the image using the content-aware seam-carving algorithm.
-
-    :param src: A source image in RGB or grayscale format.
-    :param size: The target size in pixels, as a 2-tuple (width, height)
-    :param energy_mode: Policy to compute energy for the source image. Could be
-        one of ``backward`` or ``forward``. If ``backward``, compute the energy
-        as the gradient at each pixel. If ``forward``, compute the energy as the
-        distances between adjacent pixels after each pixel is removed.
-    :param order: The order to remove horizontal and vertical seams. Could be
-        one of ``width-first`` or ``height-first``. In ``width-first`` mode, we
-        remove or insert all vertical seams first, then the horizontal ones,
-        while ``height-first`` is the opposite.
-    :param keep_mask: An optional mask where the foreground is protected from
-        seam removal. If not specify, no area will be protected.
-    :return: A resized copy of the source image.
-    """
     src = _check_src(src)
     src_h, src_w = src.shape[:2]
 
@@ -338,10 +310,6 @@ def resize(src: np.ndarray, size: Tuple[int, int],
         raise ValueError('Invalid target height {}: expected less than twice '
                          'the source height (< {})'.format(height, 2 * src_h))
 
-    if order not in VALID_ORDERS:
-        raise ValueError('Invalid order {}: expected {}'.format(
-            order, VALID_ORDERS))
-
     if energy_mode not in VALID_ENERGY_MODES:
         raise ValueError('Invalid energy mode {}: expected {}'.format(
             energy_mode, VALID_ENERGY_MODES))
@@ -350,48 +318,21 @@ def resize(src: np.ndarray, size: Tuple[int, int],
         keep_mask = _check_mask(keep_mask, (src_h, src_w))
 
     global keep_mask_
-    keep_mask_ = keep_mask
-    if order == WIDTH_FIRST:
+    if order == OPTIMAL:
+
+        c = src_w - width
+        r = src_h - height
+        if c > 0:
+            if r > 0:
+                T = np.zeros((c, r))
+                TBMap = np.ones((c, r)) * (-1)
+                TBMap[:, 0] = 1
+                TBMap[0, :] = 0
+                ImgNowRow = src.copy()
+                for i in range(1, c):
+                    T[i, 0] = T[i-1, 0] + EnergySeam()
+
         src = _resize_width(src, width, energy_mode, keep_mask)
         src = _resize_height(src, height, energy_mode, keep_mask_)
-
-    else:
-        src = _resize_height(src, height, energy_mode, keep_mask)
-        src = _resize_width(src, width, energy_mode, keep_mask_)
-
-    return src
-
-
-def remove_object(src: np.ndarray, drop_mask: np.ndarray,
-                  keep_mask: Optional[np.ndarray] = None) -> np.ndarray:
-    """Remove an object on the source image.
-
-    :param src: A source image in RGB or grayscale format.
-    :param drop_mask: A binary object mask to remove.
-    :param keep_mask: An optional binary object mask to be protected from
-        removal. If not specified, no area is protected.
-    :return: A copy of the source image where the drop_mask is removed.
-    """
-    src = _check_src(src)
-
-    drop_mask = _check_mask(drop_mask, src.shape[:2])
-
-    if keep_mask is not None:
-        keep_mask = _check_mask(keep_mask, src.shape[:2])
-
-    gray = src if src.ndim == 2 else _rgb2gray(src)
-
-    while drop_mask.any():
-        energy = _get_energy(gray)
-        energy[drop_mask] -= DROP_MASK_ENERGY
-        if keep_mask_ is not None:
-            energy[keep_mask] += KEEP_MASK_ENERGY
-        seam = _get_backward_seam(energy)
-        seam_mask = _get_seam_mask(src, seam)
-        gray = _remove_seam_mask(gray, seam_mask)
-        drop_mask = _remove_seam_mask(drop_mask, seam_mask)
-        src = _remove_seam_mask(src, seam_mask)
-        if keep_mask is not None:
-            keep_mask = _remove_seam_mask(keep_mask, seam_mask)
 
     return src
