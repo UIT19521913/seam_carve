@@ -14,6 +14,9 @@ VALID_ENERGY_MODES = (FORWARD_ENERGY, BACKWARD_ENERGY)
 DROP_MASK_ENERGY = 1e5
 KEEP_MASK_ENERGY = 1e3
 
+global keep_mask_
+keep_mask_ = None
+
 
 def _rgb2gray(rgb: np.ndarray) -> np.ndarray:
     """Convert an RGB image to a grayscale image"""
@@ -203,8 +206,12 @@ def _reduce_width(src: np.ndarray, delta_width: int, energy_mode: str,
         src_h, src_w, src_c = src.shape
         dst_shape = (src_h, src_w - delta_width, src_c)
 
+    keep_mask_shape = (src_h, src_w - delta_width)
     seams_mask = _get_seams(gray, delta_width, energy_mode, keep_mask)
     dst = src[~seams_mask].reshape(dst_shape)
+    global keep_mask_
+    keep_mask_ = keep_mask[~seams_mask].reshape(keep_mask_shape)
+
     return dst
 
 
@@ -221,8 +228,11 @@ def _expand_width(src: np.ndarray, delta_width: int, energy_mode: str,
         src_h, src_w, src_c = src.shape
         dst_shape = (src_h, src_w + delta_width, src_c)
 
+    keep_mask_shape = (src_h, src_w + delta_width)
     seams_mask = _get_seams(gray, delta_width, energy_mode, keep_mask)
     dst = np.empty(dst_shape, dtype=np.uint8)
+    global keep_mask_
+    keep_mask_ = np.empty(keep_mask_shape, dtype=np.uint8)
 
     for row in range(src_h):
         dst_col = 0
@@ -231,8 +241,10 @@ def _expand_width(src: np.ndarray, delta_width: int, energy_mode: str,
                 lo = max(0, src_col - 1)
                 hi = src_col + 1
                 dst[row, dst_col] = src[row, lo:hi].mean(axis=0)
+                keep_mask_[row, dst_col] = 0
                 dst_col += 1
             dst[row, dst_col] = src[row, src_col]
+            keep_mask_[row, dst_col] = keep_mask[row, src_col]
             dst_col += 1
         assert dst_col == src_w + delta_width
 
@@ -260,7 +272,7 @@ def _resize_height(src: np.ndarray, height: int, energy_mode: str,
     assert src.ndim in (2, 3) and height > 0
     if src.ndim == 3:
         src = _resize_width(src.transpose((1, 0, 2)), height, energy_mode,
-                            keep_mask).transpose((1, 0, 2))
+                            keep_mask.T).transpose((1, 0, 2))
     else:
         src = _resize_width(src.T, height, energy_mode, keep_mask).T
     return src
@@ -332,12 +344,13 @@ def resize(src: np.ndarray, size: Tuple[int, int],
     if keep_mask is not None:
         keep_mask = _check_mask(keep_mask, (src_h, src_w))
 
+    global keep_mask_
     if order == WIDTH_FIRST:
         src = _resize_width(src, width, energy_mode, keep_mask)
-        src = _resize_height(src, height, energy_mode, keep_mask)
+        src = _resize_height(src, height, energy_mode, keep_mask_)
     else:
         src = _resize_height(src, height, energy_mode, keep_mask)
-        src = _resize_width(src, width, energy_mode, keep_mask)
+        src = _resize_width(src, width, energy_mode, keep_mask_)
 
     return src
 
@@ -364,7 +377,7 @@ def remove_object(src: np.ndarray, drop_mask: np.ndarray,
     while drop_mask.any():
         energy = _get_energy(gray)
         energy[drop_mask] -= DROP_MASK_ENERGY
-        if keep_mask is not None:
+        if keep_mask_ is not None:
             energy[keep_mask] += KEEP_MASK_ENERGY
         seam = _get_backward_seam(energy)
         seam_mask = _get_seam_mask(src, seam)
