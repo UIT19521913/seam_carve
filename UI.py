@@ -1,16 +1,6 @@
 import streamlit as st
 from streamlit import config
 from streamlit.report import Report
-from streamlit.elements.image import (
-    _BytesIO_to_bytes,
-    _normalize_to_bytes,
-    MAXIMUM_CONTENT_WIDTH,
-)
-from streamlit.media_file_manager import (
-    _calculate_file_id,
-    _get_extension_for_mimetype,
-    STATIC_MEDIA_ENDPOINT,
-)
 import argparse
 import time
 from pathlib import Path
@@ -24,18 +14,6 @@ import pandas as pd
 import seam_carving
 
 
-def img_url(image):
-    mimetype = image.type
-    data = _BytesIO_to_bytes(image)
-    data, mimetype = _normalize_to_bytes(data, MAXIMUM_CONTENT_WIDTH, mimetype)
-    extension = _get_extension_for_mimetype(mimetype)
-    file_id = _calculate_file_id(data=data, mimetype=mimetype)
-    URL = Report.get_url(config.get_option("browser.serverAddress"))
-    return "{}{}/{}{}".format(URL, STATIC_MEDIA_ENDPOINT, file_id, extension)
-
-# header
-
-
 st.title("Seam Carving")
 
 # sidebar
@@ -47,13 +25,10 @@ img_input = st.sidebar.file_uploader("Upload a photo", type=["png", "jpg"])
 nav = st.sidebar.selectbox("Chọn thao tác muốn thực hiện", [
                            "Resize", "Remove object"])
 dst = None
-st.write(img_url(img_input))
 if img_input is not None:
     # Convert the file to an opencv image.
     file_bytes = np.asarray(bytearray(img_input.read()), dtype=np.uint8)
     opencv_image = cv2.imdecode(file_bytes, 1)
-    st.write("h", opencv_image.shape[0])
-    st.write("w", opencv_image.shape[1])
     # Now do something with the image! For example, let's display it:
     st.image(opencv_image, channels="BGR", width=None, output_format='PNG')
 
@@ -81,8 +56,8 @@ if img_input is not None:
                 background_color="#000000",
                 background_image=Image.open(img_input) if img_input else None,
                 update_streamlit=False,
-                height=src_h,
-                width=src_w,
+                # height=src_h,
+                width=704,
                 drawing_mode="polygon",
                 display_toolbar=True,
                 key="full_app_2",
@@ -91,6 +66,8 @@ if img_input is not None:
             if canvas_keep.image_data is not None and canvas_keep.image_data.any():
                 keep_mask = np.array(
                     canvas_keep.image_data[:, :, :3], dtype=np.uint8)
+                keep_mask = cv2.resize(keep_mask, dsize=(
+                    src_w, src_h), interpolation=cv2.INTER_CUBIC)
                 keep_mask = (keep_mask[:, :, 0] > 10) * 255
                 st.image(keep_mask, width=None, output_format='PNG')
 
@@ -119,8 +96,8 @@ if img_input is not None:
                 background_color="#000000",
                 background_image=Image.open(img_input) if img_input else None,
                 update_streamlit=False,
-                height=src_h,
-                width=src_w,
+                # height=src_h,
+                width=704,
                 drawing_mode="polygon",
                 display_toolbar=True,
                 key="full_app_1",
@@ -129,7 +106,11 @@ if img_input is not None:
             if canvas_drop.image_data is not None and canvas_drop.image_data.any():
                 drop_mask = np.array(
                     canvas_drop.image_data[:, :, :3], dtype=np.uint8)
+
                 drop_mask = (drop_mask[:, :, 0] > 10) * 255
+                drop_mask = cv2.resize(drop_mask, dsize=(
+                    src_w, src_h), interpolation=cv2.INTER_CUBIC)
+
                 st.image(drop_mask, width=None, output_format='PNG')
 
         keep_mask_select = st.sidebar.checkbox("Chọn đối tượng giữ ")
