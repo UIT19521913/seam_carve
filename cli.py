@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--energy', type=str, default='backward',
                         choices=['backward', 'forward'])
     parser.add_argument('--order', type=str, default='width-first',
-                        choices=['width-first', 'height-first'])
+                        choices=['width-first', 'height-first', 'optimal'])
     parser.add_argument('--dropNoChange', default=False,
                         action=argparse.BooleanOptionalAction)
 

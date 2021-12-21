@@ -96,8 +96,8 @@ if img_input is not None:
                 background_color="#000000",
                 background_image=Image.open(img_input) if img_input else None,
                 update_streamlit=False,
-                # height=src_h,
-                width=704,
+                height=src_h,
+                width=src_w,
                 drawing_mode="polygon",
                 display_toolbar=True,
                 key="full_app_1",
@@ -106,10 +106,9 @@ if img_input is not None:
             if canvas_drop.image_data is not None and canvas_drop.image_data.any():
                 drop_mask = np.array(
                     canvas_drop.image_data[:, :, :3], dtype=np.uint8)
-
-                drop_mask = (drop_mask[:, :, 0] > 10) * 255
                 drop_mask = cv2.resize(drop_mask, dsize=(
                     src_w, src_h), interpolation=cv2.INTER_CUBIC)
+                drop_mask = (drop_mask[:, :, 0] > 10) * 255
 
                 st.image(drop_mask, width=None, output_format='PNG')
 
@@ -139,14 +138,20 @@ if img_input is not None:
                 st.image(keep_mask, width=None, output_format='PNG')
 
         size_unchange = st.sidebar.checkbox("Không thay đổi kích thước ảnh")
+        order = st.sidebar.selectbox("Chọn hướng xoá đối tương", [
+            "width", "height"])
         confirm = st.button("Confirm")
         if confirm:
             status = st.empty()
             start = time.time()
             status.write("Performing seam carving...")
 
-            dst = seam_carving.remove_object(
-                opencv_image, drop_mask, keep_mask)
+            if order == "width":
+                dst = seam_carving.remove_object_width(
+                    opencv_image, drop_mask, keep_mask)
+            else:
+                dst = seam_carving.remove_object_height(
+                    opencv_image, drop_mask, keep_mask)
             if size_unchange:
                 dst = seam_carving.resize(dst, (src_w, src_h))
             status.write('Done at {:.4f} second(s)'.format(
