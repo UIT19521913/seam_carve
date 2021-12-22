@@ -1,9 +1,17 @@
+import resize_multi as seam_carving
+from PIL import Image
+from pathlib import Path
+import time
+import argparse
 from typing import Tuple, Optional
 
 import numpy as np
 from scipy.ndimage import sobel
 
+WIDTH_FIRST = 'width-first'
+HEIGHT_FIRST = 'height-first'
 OPTIMAL = 'optimal'
+VALID_ORDERS = (WIDTH_FIRST, HEIGHT_FIRST, OPTIMAL)
 
 FORWARD_ENERGY = 'forward'
 BACKWARD_ENERGY = 'backward'
@@ -67,7 +75,7 @@ def _get_backward_seam(energy: np.ndarray) -> np.ndarray:
         cost = cost[min_idx] + energy[r]
 
     c = np.argmin(cost)
-    seam_cost = cost
+    seam_cost = np.min(cost)
     seam = np.empty(h, dtype=np.int32)
 
     for r in range(h - 1, -1, -1):
@@ -147,14 +155,14 @@ def _get_forward_seam(gray: np.ndarray,
         parent[r] = np.argmin(choices, axis=0) + base_idx
 
     c = np.argmin(dp)
-    seam_cost = cost[c]
+    seam_cost = np.min(dp)
 
     seam = np.empty(h, dtype=np.int32)
     for r in range(h - 1, -1, -1):
         seam[r] = c
         c = parent[r, c]
 
-    return seam
+    return seam, seam_cost
 
 
 def _get_forward_seams(gray: np.ndarray, num_seams: int,
@@ -199,11 +207,8 @@ def _reduce_width(src: np.ndarray, delta_width: int, energy_mode: str,
         src_h, src_w, src_c = src.shape
         dst_shape = (src_h, src_w - delta_width, src_c)
 
-    keep_mask_shape = (src_h, src_w - delta_width)
     seams_mask = _get_seams(gray, delta_width, energy_mode, keep_mask)
     dst = src[~seams_mask].reshape(dst_shape)
-    global keep_mask_
-    keep_mask_ = keep_mask[~seams_mask].reshape(keep_mask_shape)
 
     return dst
 
@@ -224,8 +229,9 @@ def _expand_width(src: np.ndarray, delta_width: int, energy_mode: str,
     keep_mask_shape = (src_h, src_w + delta_width)
     seams_mask = _get_seams(gray, delta_width, energy_mode, keep_mask)
     dst = np.empty(dst_shape, dtype=np.uint8)
-    global keep_mask_
-    keep_mask_ = np.empty(keep_mask_shape, dtype=np.uint8)
+    if keep_mask is not None:
+        global keep_mask_
+        keep_mask_ = np.empty(keep_mask_shape, dtype=np.uint8)
 
     for row in range(src_h):
         dst_col = 0
@@ -234,10 +240,12 @@ def _expand_width(src: np.ndarray, delta_width: int, energy_mode: str,
                 lo = max(0, src_col - 1)
                 hi = src_col + 1
                 dst[row, dst_col] = src[row, lo:hi].mean(axis=0)
-                keep_mask_[row, dst_col] = 0
+                if keep_mask is not None:
+                    keep_mask_[row, dst_col] = 0
                 dst_col += 1
             dst[row, dst_col] = src[row, src_col]
-            keep_mask_[row, dst_col] = keep_mask[row, src_col]
+            if keep_mask is not None:
+                keep_mask_[row, dst_col] = keep_mask[row, src_col]
             dst_col += 1
         assert dst_col == src_w + delta_width
 
@@ -264,8 +272,10 @@ def _resize_height(src: np.ndarray, height: int, energy_mode: str,
     """Resize the height of image by removing horizontal seams"""
     assert src.ndim in (2, 3) and height > 0
     if src.ndim == 3:
+        if keep_mask is not None:
+            keep_mask = keep_mask.T
         src = _resize_width(src.transpose((1, 0, 2)), height, energy_mode,
-                            keep_mask.T).transpose((1, 0, 2))
+                            keep_mask).transpose((1, 0, 2))
     else:
         src = _resize_width(src.T, height, energy_mode, keep_mask).T
     return src
@@ -292,9 +302,71 @@ def _check_src(src: np.ndarray) -> np.ndarray:
     return src
 
 
+def _get_TBMap(src: np.ndarray, size: Tuple[int, int],
+               energy_mode: str = 'backward', order: str = 'width-first',
+               keep_mask: Optional[np.ndarray] = None) -> np.ndarray:
+    n, m = src.shape[:2]
+    m_, n_ = size
+    r, c = abs(n-n_), abs(m-m_)
+    if src.ndim == 2:
+        gray = src
+    else:
+        gray = _rgb2gray(src)
+
+    T = np.zeros((c+1, r+1))
+    TBMap = np.ones((c+1, r+1)) * (-1)
+    T[0, 0] = 0
+
+    temp = gray.copy()
+    print(T.shape)
+    for i in range(1, c+1):
+        energy = _get_energy(temp)
+        _, seam_cost = _get_backward_seam(energy)
+        T[i, 0] = T[i-1, 0] + seam_cost
+        TBMap[i, 0] = 1
+
+    temp = gray.T.copy()
+    for j in range(1, r+1):
+        energy = _get_energy(temp)
+        _, seam_cost = _get_backward_seam(energy)
+        T[0, j] = T[0, j-1] + seam_cost
+        TBMap[0, j] = 0
+
+    gray = _reduce_width(gray, 1, energy_mode, keep_mask)
+    gray = _reduce_width(gray.T, 1, energy_mode, keep_mask).T
+
+    print(gray.shape)
+
+    temp = gray.copy()
+
+    for i in range(1, c+1):
+        imgWithoutRow = temp.copy()
+        for j in range(1, r+1):
+            energy = _get_energy(imgWithoutRow)
+
+            _, seam_cost_V = _get_backward_seam(energy)
+
+            seam_H, seam_cost_H = _get_backward_seam(energy.T)
+            seam_mask_H = _get_seam_mask(imgWithoutRow.T, seam_H)
+            imgNoCol = _remove_seam_mask(imgWithoutRow.T, seam_mask_H)
+
+            neighbors = [(T[i-1, j] + seam_cost_V),
+                         (T[i, j-1] + seam_cost_H)]
+            ind, val = np.argmin(neighbors), np.min(neighbors)
+            T[i, j], TBMap[i, j] = val, ind
+            imgWithoutRow = imgNoCol.T.copy()
+        energy1 = _get_energy(temp)
+        seam1, _ = _get_backward_seam(energy1)
+        seam_mask1 = _get_seam_mask(temp, seam1)
+        temp = _remove_seam_mask(temp, seam_mask1)
+
+    return TBMap
+
+
 def resize(src: np.ndarray, size: Tuple[int, int],
            energy_mode: str = 'backward', order: str = 'width-first',
            keep_mask: Optional[np.ndarray] = None) -> np.ndarray:
+
     src = _check_src(src)
     src_h, src_w = src.shape[:2]
 
@@ -310,6 +382,10 @@ def resize(src: np.ndarray, size: Tuple[int, int],
         raise ValueError('Invalid target height {}: expected less than twice '
                          'the source height (< {})'.format(height, 2 * src_h))
 
+    if order not in VALID_ORDERS:
+        raise ValueError('Invalid order {}: expected {}'.format(
+            order, VALID_ORDERS))
+
     if energy_mode not in VALID_ENERGY_MODES:
         raise ValueError('Invalid energy mode {}: expected {}'.format(
             energy_mode, VALID_ENERGY_MODES))
@@ -318,21 +394,38 @@ def resize(src: np.ndarray, size: Tuple[int, int],
         keep_mask = _check_mask(keep_mask, (src_h, src_w))
 
     global keep_mask_
-    if order == OPTIMAL:
-
-        c = src_w - width
-        r = src_h - height
-        if c > 0:
-            if r > 0:
-                T = np.zeros((c, r))
-                TBMap = np.ones((c, r)) * (-1)
-                TBMap[:, 0] = 1
-                TBMap[0, :] = 0
-                ImgNowRow = src.copy()
-                for i in range(1, c):
-                    T[i, 0] = T[i-1, 0] + EnergySeam()
-
+    keep_mask_ = keep_mask
+    if order == WIDTH_FIRST:
         src = _resize_width(src, width, energy_mode, keep_mask)
         src = _resize_height(src, height, energy_mode, keep_mask_)
 
+    elif order == HEIGHT_FIRST:
+        src = _resize_height(src, height, energy_mode, keep_mask)
+        src = _resize_width(src, width, energy_mode, keep_mask_)
+
+    elif order == OPTIMAL:
+        TBMap = _get_TBMap(src, size, energy_mode, order, keep_mask)
+        i, j = TBMap.shape
+        print(TBMap)
+        i -= 1
+        j -= 1
+        r = 0
+        c = 0
+        while True:
+            if TBMap[i, j] == -1:
+                break
+            if TBMap[i, j] == 0:
+                if src_h > height:
+                    r -= 1
+                else:
+                    r += 1
+                src = _resize_height(src, src_h + r, energy_mode, keep_mask)
+                j -= 1
+            else:
+                if src_w > width:
+                    c -= 1
+                else:
+                    c += 1
+                src = _resize_width(src, src_w + c, energy_mode, keep_mask)
+                i -= 1
     return src
