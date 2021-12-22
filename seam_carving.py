@@ -13,7 +13,7 @@ BACKWARD_ENERGY = 'backward'
 VALID_ENERGY_MODES = (FORWARD_ENERGY, BACKWARD_ENERGY)
 
 DROP_MASK_ENERGY = 1e5
-KEEP_MASK_ENERGY = 1e3
+KEEP_MASK_ENERGY = 1e4
 
 global keep_mask_
 keep_mask_ = None
@@ -309,16 +309,7 @@ def _check_src(src: np.ndarray) -> np.ndarray:
 
 def remove_object_width(src: np.ndarray, drop_mask: np.ndarray,
                         keep_mask: Optional[np.ndarray] = None) -> np.ndarray:
-    """Remove an object on the source image.
-
-    :param src: A source image in RGB or grayscale format.
-    :param drop_mask: A binary object mask to remove.
-    :param keep_mask: An optional binary object mask to be protected from
-        removal. If not specified, no area is protected.
-    :return: A copy of the source image where the drop_mask is removed.
-    """
     src = _check_src(src)
-
     drop_mask = _check_mask(drop_mask, src.shape[:2])
 
     if keep_mask is not None:
@@ -329,7 +320,7 @@ def remove_object_width(src: np.ndarray, drop_mask: np.ndarray,
     while drop_mask.any():
         energy = _get_energy(gray)
         energy[drop_mask] -= DROP_MASK_ENERGY
-        if keep_mask_ is not None:
+        if keep_mask is not None:
             energy[keep_mask] += KEEP_MASK_ENERGY
         seam, _ = _get_backward_seam(energy)
         seam_mask = _get_seam_mask(src, seam)
@@ -344,29 +335,18 @@ def remove_object_width(src: np.ndarray, drop_mask: np.ndarray,
 
 def remove_object_height(src: np.ndarray, drop_mask: np.ndarray,
                          keep_mask: Optional[np.ndarray] = None) -> np.ndarray:
-    """Remove an object on the source image.
-
-    :param src: A source image in RGB or grayscale format.
-    :param drop_mask: A binary object mask to remove.
-    :param keep_mask: An optional binary object mask to be protected from
-        removal. If not specified, no area is protected.
-    :return: A copy of the source image where the drop_mask is removed.
-    """
     src = _check_src(src)
-
     drop_mask = _check_mask(drop_mask, src.shape[:2])
     src = src.transpose(1, 0, 2)
     drop_mask = drop_mask.T
-
     if keep_mask is not None:
         keep_mask = _check_mask(keep_mask, src.shape[:2])
-
+        keep_mask = keep_mask.T
     gray = src if src.ndim == 2 else _rgb2gray(src)
-
     while drop_mask.any():
         energy = _get_energy(gray)
         energy[drop_mask] -= DROP_MASK_ENERGY
-        if keep_mask_ is not None:
+        if keep_mask is not None:
             energy[keep_mask] += KEEP_MASK_ENERGY
         seam, _ = _get_backward_seam(energy)
         seam_mask = _get_seam_mask(src, seam)

@@ -107,13 +107,13 @@ def draw_roi(event, x, y, flags, param):
             cv2.circle(img2, pts[i], 1, (0, 0, 255), -1)
             cv2.line(img=img2, pt1=pts[i], pt2=pts[i + 1],
                      color=(255, 0, 0), thickness=2)
-    cv2.imshow('image', img2)
+    cv2.imshow('mask_', img2)
 
 
 def drawMask(opt):
     img = img_input.copy()
-    cv2.namedWindow('image')
-    cv2.setMouseCallback('image', draw_roi)
+    cv2.namedWindow('mask_')
+    cv2.setMouseCallback('mask_', draw_roi)
     global keep_mask
     global drop_mask
     global pts
@@ -158,14 +158,14 @@ def run_seam_carve():
         if remove == "width":
             if isKeepMask.get():
                 img_output = seam_carving.remove_object_width(
-                    img_input, drop_mask, keep_mask=keep_mask)
+                    img_input, drop_mask, keep_mask)
             else:
                 img_output = seam_carving.remove_object_width(
                     img_input, drop_mask)
         else:
             if isKeepMask.get():
                 img_output = seam_carving.remove_object_height(
-                    img_input, drop_mask, keep_mask=keep_mask)
+                    img_input, drop_mask, keep_mask)
             else:
                 img_output = seam_carving.remove_object_height(
                     img_input, drop_mask)
