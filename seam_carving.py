@@ -395,13 +395,17 @@ def _get_TBMap(src: np.ndarray, size: Tuple[int, int],
     temp = gray.copy()
     for i in range(1, c+1):
         energy = _get_energy(temp)
-        _, seam_cost = _get_backward_seam(energy)
+        seam, seam_cost = _get_backward_seam(energy)
+        seam_mask = _get_seam_mask(temp, seam)
+        temp = _remove_seam_mask(temp, seam_mask)
         T[i, 0] = T[i-1, 0] + seam_cost
         TBMap[i, 0] = 1
     temp = gray.T.copy()
     for j in range(1, r+1):
         energy = _get_energy(temp)
-        _, seam_cost = _get_backward_seam(energy)
+        seam, seam_cost = _get_backward_seam(energy)
+        seam_mask = _get_seam_mask(temp, seam)
+        temp = _remove_seam_mask(temp, seam_mask)
         T[0, j] = T[0, j-1] + seam_cost
         TBMap[0, j] = 0
     gray = _reduce_width(gray, 1, energy_mode, keep_mask)
