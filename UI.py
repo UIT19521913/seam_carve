@@ -11,9 +11,6 @@ from streamlit_drawable_canvas import st_canvas
 import pandas as pd
 
 
-import seam_carving
-
-
 st.title("Seam Carving")
 
 # sidebar
