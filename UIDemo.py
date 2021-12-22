@@ -209,6 +209,14 @@ def callbackFunc(event):
         energy_input.place(x=-50, y=-50)
 
 
+def exportImg():
+    defaultextension = '.png'
+    filename = fd.asksaveasfile(mode='w', defaultextension=defaultextension)
+    if not filename:
+        return
+    cv2.imwrite(filename.name, img_output)
+
+
 window = Tk()
 window.geometry('1600x800')
 window.resizable(0, 0)
@@ -218,6 +226,12 @@ import_button = Button(window, text='Import image', bg='black', fg='white')
 import_button.config(command=lambda: importImg(my_label))
 import_button.config(height=2, width=15)
 import_button.place(x=25, y=750)
+
+import_button = Button(window, text='Export image', bg='black', fg='white')
+import_button.config(command=lambda: exportImg())
+import_button.config(height=2, width=15)
+import_button.place(x=150, y=750)
+
 
 option = ttk.Combobox(window, height=50, width=15)
 option['values'] = ('Resize',
