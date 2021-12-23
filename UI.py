@@ -10,7 +10,7 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import pandas as pd
 
-
+import seam_carving
 st.title("Seam Carving")
 
 # sidebar
@@ -144,7 +144,7 @@ if img_input is not None:
             status.write("Performing seam carving...")
 
             if order == "width":
-                dst = seam_carving.remove_object_width(
+                dst = seam_carving.remove_object(
                     opencv_image, drop_mask, keep_mask)
             else:
                 dst = seam_carving.remove_object_height(

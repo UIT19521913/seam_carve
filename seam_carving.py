@@ -330,18 +330,20 @@ def remove_object_width(src: np.ndarray, drop_mask: np.ndarray,
         if keep_mask is not None:
             keep_mask = _remove_seam_mask(keep_mask, seam_mask)
 
-    return src
+    return src, keep_mask
 
 
 def remove_object_height(src: np.ndarray, drop_mask: np.ndarray,
                          keep_mask: Optional[np.ndarray] = None) -> np.ndarray:
     src = _check_src(src)
     drop_mask = _check_mask(drop_mask, src.shape[:2])
-    src = src.transpose(1, 0, 2)
+
     drop_mask = drop_mask.T
     if keep_mask is not None:
         keep_mask = _check_mask(keep_mask, src.shape[:2])
         keep_mask = keep_mask.T
+
+    src = src.transpose(1, 0, 2)
     gray = src if src.ndim == 2 else _rgb2gray(src)
     while drop_mask.any():
         energy = _get_energy(gray)
@@ -355,8 +357,9 @@ def remove_object_height(src: np.ndarray, drop_mask: np.ndarray,
         src = _remove_seam_mask(src, seam_mask)
         if keep_mask is not None:
             keep_mask = _remove_seam_mask(keep_mask, seam_mask)
-
-    return src.transpose(1, 0, 2)
+    if keep_mask is not None:
+        keep_mask = keep_mask.T
+    return src.transpose(1, 0, 2), keep_mask
 
 
 def _get_TBMap(src: np.ndarray, size: Tuple[int, int],

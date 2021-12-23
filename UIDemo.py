@@ -155,22 +155,24 @@ def run_seam_carve():
             img_output = seam_carving.resize(
                 img_input, (width, height), energy, order, keep_mask=None)
     else:
+        keep_mask_ = None
         if remove == "width":
             if isKeepMask.get():
-                img_output = seam_carving.remove_object_width(
+                img_output, keep_mask_ = seam_carving.remove_object_width(
                     img_input, drop_mask, keep_mask)
             else:
-                img_output = seam_carving.remove_object_width(
+                img_output, _ = seam_carving.remove_object_width(
                     img_input, drop_mask)
         else:
             if isKeepMask.get():
-                img_output = seam_carving.remove_object_height(
+                img_output, keep_mask_ = seam_carving.remove_object_height(
                     img_input, drop_mask, keep_mask)
             else:
-                img_output = seam_carving.remove_object_height(
+                img_output, _ = seam_carving.remove_object_height(
                     img_input, drop_mask)
         if isKeepSize.get():
-            img_output = seam_carving.resize(img_output, (src_w, src_h))
+            img_output = seam_carving.resize(
+                img_output, (src_w, src_h), energy, order, keep_mask_)
     cv2.imshow("output", img_output)
 
 
